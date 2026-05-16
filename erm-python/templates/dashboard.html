@@ -576,5 +576,27 @@ new Chart(document.getElementById('trend-chart'), {
     ]},
   options:{...opts, scales:{ y:{ ticks:{font:{size:9}}, beginAtZero:true }, x:{ ticks:{font:{size:9}} }}},
 });
+
+// ── Heatmap 2D/3D Toggle ──────────────────────────────────────────────────────
+function setHeatmapMode(mode){
+  const block2d = document.getElementById('heatmap-2d-block');
+  const block3d = document.getElementById('heatmap-3d-block');
+  const btn2d = document.getElementById('heatmap-2d-btn');
+  const btn3d = document.getElementById('heatmap-3d-btn');
+  const label = document.getElementById('heatmap-mode-label');
+  if(mode==='3D'){
+    block2d.style.display='none';
+    block3d.style.display='block';
+    btn2d.style.background='#fff'; btn2d.style.color='var(--navy)';
+    btn3d.style.background='var(--navy)'; btn3d.style.color='#fff';
+    if(label) label.textContent='Impact × Velocity × Likelihood';
+  } else {
+    block2d.style.display='block';
+    block3d.style.display='none';
+    btn2d.style.background='var(--navy)'; btn2d.style.color='#fff';
+    btn3d.style.background='#fff'; btn3d.style.color='var(--navy)';
+    if(label) label.textContent='Impact × Likelihood';
+  }
+}
 </script>
 {% endblock %}
