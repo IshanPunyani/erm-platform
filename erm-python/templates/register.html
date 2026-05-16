@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Risk Register{% endblock %}
+{% block content %}
+<div class="page">
+
+  {% set view_mode = request.query_params.get('view', '2d') %}
+  {% if view_mode == '3d' %}
+    {% set rating_field = 'rating_3d' %}
+    {% set score_field = 'risk_score_3d' %}
+  {% else %}
+    {% set rating_field = 'rating' %}
+    {% set score_field = 'risk_score' %}
+  {% endif %}
+
+  <!-- Header -->
+  <div class="flex flex-between flex-center mb-16" style="flex-wrap:wrap;gap:12px;">
+    <div>
+      <h1 class="page-title">Risk Register</h1>
+      <p class="page-sub">{{ risks|length }} risks shown{% if filters.q or filters.cat or filters.rating or filters.status or filters.biz %} · <a href="/register" style="color:var(--green);">Clear filters ×</a>{% endif %}</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <!-- 2D/3D Toggle -->
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:10px;font-weight:800;color:var(--slate);text-transform:uppercase;">View:</span>
+        <div style="display:flex;gap:0;border-radius:8px;overflow:hidden;border:2px solid var(--navy);box-shadow:0 1px 3px rgba(13,35,64,0.15);">
+          <a href="/register?view=2d{% if filters.q %}&q={{ filters.q }}{% endif %}{% if filters.cat %}&cat={{ filters.cat }}{% endif %}{% if filters.rating %}&rating={{ filters.rating }}{% endif %}{% if filters.status %}&status={{ filters.status }}{% endif %}{% if filters.biz %}&biz={{ filters.biz }}{% endif %}"
+            style="padding:6px 12px;text-decoration:none;font-size:11px;font-weight:900;font-family:var(--font);{% if view_mode != '3d' %}background:var(--navy);color:#fff;{% else %}background:#fff;color:var(--navy);{% endif %}">2D</a>
+          <a href="/register?view=3d{% if filters.q %}&q={{ filters.q }}{% endif %}{% if filters.cat %}&cat={{ filters.cat }}{% endif %}{% if filters.rating %}&rating={{ filters.rating }}{% endif %}{% if filters.status %}&status={{ filters.status }}{% endif %}{% if filters.biz %}&biz={{ filters.biz }}{% endif %}"
+            style="padding:6px 12px;text-decoration:none;font-size:11px;font-weight:900;font-family:var(--font);border-left:2px solid var(--navy);{% if view_mode == '3d' %}background:var(--navy);color:#fff;{% else %}background:#fff;color:var(--navy);{% endif %}">3D</a>
+        </div>
+      </div>
+      <a href="/import" class="btn btn-ghost btn-sm">📥 Import Excel</a>
+      <a href="/risks/add" class="btn btn-primary">+ Add Risk</a>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" action="/register" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <input type="hidden" name="view" value="{{ view_mode }}">
+    <input type="text" name="q" value="{{ filters.q }}" placeholder="🔍  Search…"
+      style="min-width:180px;flex:2 1 180px;max-width:260px;">
+    <select name="cat" style="flex:1 1 130px;">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if filters.cat==c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <select name="rating" style="flex:1 1 110px;">
+      <option value="">All Ratings</option>
+      {% for r in ratings %}
+      <option value="{{ r }}" {% if filters.rating==r %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" style="flex:1 1 120px;">
+      <option value="">All Statuses</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if filters.status==s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <select name="biz" style="flex:1 1 130px;">
+      <option value="">All BUs</option>
+      {% for b in businesses if b.active %}
+      <option value="{{ b.name }}" {% if filters.biz==b.name %}selected{% endif %}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+  </form>
+
+  <!-- Excel Import Form (hidden toggle) -->
+  <div id="import-form" style="display:none;background:var(--card);border-radius:12px;border:1px solid var(--border);padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px;">Import Risks from Excel</div>
+    <div class="alert alert-blue" style="margin-bottom:10px;">Download the <a href="/export/template" style="color:var(--navy);font-weight:700;">Excel template</a> first, fill it in, then upload here.</div>
+    <form method="post" action="/import-excel" enctype="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="fld" style="margin:0;flex:2 1 200px;">
+        <label>Excel File (.xlsx)</label>
+        <input type="file" name="file" accept=".xlsx" required style="padding:6px;">
+      </div>
+      <div class="fld" style="margin:0;flex:1 1 150px;">
+        <label>Imported By</label>
+        <input type="text" name="added_by" placeholder="Your name">
+      </div>
+      <button type="submit" class="btn btn-green">Upload &amp; Import</button>
+      <button type="button" onclick="document.getElementById('import-form').style.display='none'" class="btn btn-ghost">Cancel</button>
+    </form>
+  </div>
+
+  <!-- Summary KPIs -->
+  <div class="grid-5 mb-16" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));">
+    {% set total = all_risks|length %}
+    {% set crit  = all_risks|selectattr(rating_field,'eq','Critical')|list|length %}
+    {% set high  = all_risks|selectattr(rating_field,'eq','High')|list|length %}
+    {% set med   = all_risks|selectattr(rating_field,'eq','Medium')|list|length %}
+    {% set open_ = all_risks|rejectattr('status','eq','Completed')|list|length %}
+    <div class="kpi" style="border-color:var(--green);">
+      <div class="val" style="color:var(--navy);">{{ total }}</div>
+      <div class="lbl">Total Risks</div><div class="sub">In register</div>
+    </div>
+    <div class="kpi" style="border-color:var(--red);">
+      <div class="val" style="color:var(--red);">{{ crit }}</div>
+      <div class="lbl">Critical</div><div class="sub">{{ view_mode|upper }} rating</div>
+    </div>
+    <div class="kpi" style="border-color:var(--amber);">
+      <div class="val" style="color:var(--amber);">{{ high }}</div>
+      <div class="lbl">High</div><div class="sub">{{ view_mode|upper }} rating</div>
+    </div>
+    <div class="kpi" style="border-color:var(--orange);">
+      <div class="val" style="color:var(--orange);">{{ med }}</div>
+      <div class="lbl">Medium</div><div class="sub">{{ view_mode|upper }} rating</div>
+    </div>
+    <div class="kpi" style="border-color:var(--green);">
+      <div class="val" style="color:var(--navy);">{{ open_ }}</div>
+      <div class="lbl">Open Actions</div><div class="sub">Pending closure</div>
+    </div>
+  </div>
+
+  <!-- Risk Table -->
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px;">No.</th>
+          <th style="width:115px;">Category</th>
+          <th>Risk Statement</th>
+          <th style="width:48px;text-align:center;" title="Financial Impact">Fin</th>
+          <th style="width:48px;text-align:center;" title="Operational Impact">Ops</th>
+          <th style="width:48px;text-align:center;" title="Regulatory Impact">Reg</th>
+          <th style="width:48px;text-align:center;" title="Brand/Reputation Impact">Brand</th>
+          <th style="width:58px;text-align:center;">Impact</th>
+          <th style="width:52px;text-align:center;">L'hood</th>
+          {% if view_mode == '3d' %}<th style="width:48px;text-align:center;">Vel</th>{% endif %}
+          <th style="width:68px;text-align:center;">Score ({{ view_mode|upper }})</th>
+          <th style="width:82px;">Rating</th>
+          <th style="width:76px;">Strategy</th>
+          <th style="width:108px;">Status</th>
+          <th style="width:110px;">Risk Owner</th>
+          <th style="width:90px;">Next Review</th>
+          <th style="width:110px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in risks %}
+        {% set score = r[score_field] or 0 %}
+        {% set rating = r[rating_field] or 'N/A' %}
+        {% set trend = '' %}
+        {% if r.history|length > 1 %}
+          {% set last = r.history[-1].score %}
+          {% set prev = r.history[-2].score %}
+          {% if last < prev %}{% set trend = '▼' %}
+          {% elif last > prev %}{% set trend = '▲' %}
+          {% else %}{% set trend = '►' %}
+          {% endif %}
+        {% endif %}
+        <tr id="tr-{{ r.id }}" onclick="toggleRow({{ r.id }})">
+          <td style="font-weight:900;color:var(--green);font-size:11px;">{{ r.no }}</td>
+          <td><span style="background:#F0F4F9;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;color:var(--navy);">{{ (r.category or '').split('/')[0][:13] }}</span></td>
+          <td style="max-width:240px;">
+            <div class="truncate" style="font-size:12px;font-weight:600;color:var(--navy);">{{ r.statement }}</div>
+            <div class="text-xs text-muted mt-4">{% if r.applicability=='group' %}Group{% else %}{{ (r.businesses or [])|join(', ') }}{% endif %}</div>
+          </td>
+          {% for imp_key in ['impact_financial','impact_operational','impact_regulatory','impact_brand'] %}
+            <td style="text-align:center;font-size:12px;font-weight:700;color:{% if r[imp_key]=='NA' %}var(--muted){% else %}var(--navy){% endif %};">{{ r[imp_key] or '—' }}</td>
+          {% endfor %}
+          <td style="text-align:center;">
+            <span class="bubble bubble-sm {% if r.final_impact >= 5 %}bub-critical{% elif r.final_impact >= 4 %}bub-high{% elif r.final_impact >= 3 %}bub-medium{% elif r.final_impact >= 1 %}bub-low{% else %}bub-na{% endif %}">{{ r.final_impact or '—' }}</span>
+          </td>
+          <td style="text-align:center;font-size:13px;font-weight:900;color:var(--navy);">{{ r.likelihood or '—' }}</td>
+          {% if view_mode == '3d' %}
+          <td style="text-align:center;font-size:13px;font-weight:900;color:var(--navy);">{{ r.velocity or '—' }}</td>
+          {% endif %}
+          <td style="text-align:center;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:4px;">
+              <span class="bubble bubble-sm {% if score >= 21 %}bub-critical{% elif score >= 15 %}bub-high{% elif score >= 10 %}bub-medium{% elif score >= 5 %}bub-low{% else %}bub-na{% endif %}">{{ score or '—' }}</span>
+              {% if trend == '▼' %}<span style="font-size:11px;font-weight:900;color:var(--green);">▼</span>
+              {% elif trend == '▲' %}<span style="font-size:11px;font-weight:900;color:var(--red);">▲</span>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <span class="badge badge-{{ rating|lower if rating else 'na' }}">{{ rating }}</span>
+          </td>
+          <td style="font-size:11px;color:var(--slate);">{{ r.strategy or '—' }}</td>
+          <td>
+            {% set sc = r.status or 'Not Started' %}
+            {% set sck = sc|lower|replace(' ','') %}
+            <span class="status-dot sd-{{ sck }}">{{ sc }}</span>
+          </td>
+          <td style="font-size:11px;color:var(--slate);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;">{{ r.risk_owner or '—' }}</td>
+          <td style="font-size:10px;font-weight:600;color:{% if r.next_assessment_date and r.next_assessment_date < now %}var(--red){% else %}var(--slate){% endif %};">{{ r.next_assessment_date or '—' }}</td>
+          <td onclick="event.stopPropagation();">
+            <div style="display:flex;gap:4px;">
+              <a href="/risks/{{ r.id }}/view" class="btn btn-ghost btn-xs">View</a>
+              <a href="/risks/{{ r.id }}/edit" class="btn btn-green-ghost btn-xs">Edit</a>
+              <form method="post" action="/risks/{{ r.id }}/delete" style="display:inline;" onsubmit="return confirmDelete(this);">
+                <button type="submit" class="btn btn-red-ghost btn-xs">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <!-- Expandable detail row -->
+        <tr id="expand-{{ r.id }}" style="display:none;" class="expand-row">
+          <td colspan="{% if view_mode == '3d' %}17{% else %}16{% endif %}">
+            <div class="expand-inner">
+              <div class="exp-section">
+                <h4>Events / Triggers</h4>
+                <p>{{ r.events or '—' }}</p>
+                <h4 style="margin-top:12px;">Likelihood Basis</h4>
+                <p>{{ r.likelihood_basis or '—' }}</p>
+              </div>
+              <div class="exp-section">
+                <h4>Impact Basis</h4>
+                <p><strong>Financial:</strong> {{ r.impact_financial_basis or '—' }}</p>
+                <p><strong>Operational:</strong> {{ r.impact_operational_basis or '—' }}</p>
+                <p><strong>Regulatory:</strong> {{ r.impact_regulatory_basis or '—' }}</p>
+                <p><strong>Brand:</strong> {{ r.impact_brand_basis or '—' }}</p>
+              </div>
+              <div class="exp-section">
+                <h4>Existing Controls</h4>
+                <p>{{ r.existing_controls or '—' }}</p>
+                <h4 style="margin-top:12px;">Proposed Plan</h4>
+                <p>{{ r.proposed_plan or '—' }}</p>
+                {% if r.proposed_plan_submitted_by %}
+                <p class="text-xs text-muted">Submitted by {{ r.proposed_plan_submitted_by }} on {{ r.proposed_plan_submitted_at }}</p>
+                {% endif %}
+              </div>
+              {% if r.history %}
+              <div class="exp-section">
+                <h4>Score History</h4>
+                {% for h in r.history|reverse %}
+                <div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;">
+                  <span style="color:var(--muted);width:52px;flex-shrink:0;">{{ h.date }}</span>
+                  <span class="bubble bubble-sm {% if h.score >= 15 %}bub-critical{% elif h.score >= 10 %}bub-high{% elif h.score >= 5 %}bub-medium{% elif h.score >= 1 %}bub-low{% else %}bub-na{% endif %}">{{ h.score }}</span>
+                  <span class="badge badge-{{ h.rating|lower if h.rating else 'na' }} " style="font-size:9px;">{{ h.rating }}</span>
+                  <span style="color:var(--slate);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ h.note }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="{% if view_mode == '3d' %}17{% else %}16{% endif %}" style="text-align:center;padding:48px;color:var(--muted);">
+          <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+          <div style="font-size:14px;font-weight:600;">No risks match your filters</div>
+          <div style="margin-top:12px;"><a href="/risks/add" class="btn btn-primary">+ Add First Risk</a></div>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelector('a[href="/import"]')?.addEventListener('click',function(e){
+  e.preventDefault();
+  const f=document.getElementById('import-form');
+  f.style.display=f.style.display==='none'?'block':'none';
+});
+// Fix import link
+document.querySelectorAll('.btn').forEach(b=>{
+  if(b.textContent.includes('Import Excel')){
+    b.href='#';
+    b.addEventListener('click',function(e){
+      e.preventDefault();
+      const f=document.getElementById('import-form');
+      f.style.display=f.style.display==='none'?'block':'none';
+    });
+  }
+});
+</script>
+{% endblock %}

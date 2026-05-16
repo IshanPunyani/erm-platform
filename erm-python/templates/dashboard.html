@@ -1,0 +1,602 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="mb-16">
+    <h1 class="page-title">Executive Risk Dashboard</h1>
+    <div style="margin-top:10px;margin-bottom:16px;">
+
+  <span style="font-size:12px;font-weight:700;color:#666;">
+    VIEW MODE:
+  </span>
+
+  <a href="/?view=2d"
+     style="
+       padding:6px 12px;
+       border-radius:8px;
+       text-decoration:none;
+       background:{%if request.query_params.get('view','2d') != '3d' %}#0B1F44{% else %}#ddd{% endif %};
+       color:{% if request.query_params.get('view','2d') != '3d' %}white{% else %}black{% endif %};
+       margin-left:8px;
+       font-size:12px;
+       font-weight:700;
+     ">
+     2D Rating
+  </a>
+
+  <a href="/?view=3d"
+     style="
+       padding:6px 12px;
+       border-radius:8px;
+       text-decoration:none;
+       background:{% if request.query_params.get('view') == '3d'%}#0B1F44{% else %}#ddd{% endif %};
+       color:{% if request.query_params.get('view') == '3d' %}white{% else %}black{% endif %};
+       margin-left:8px;
+       font-size:12px;
+       font-weight:700;
+     ">
+     3D Rating
+  </a>
+
+</div>
+    <p class="page-sub">{{ settings.company_name }} · {{ settings.report_period }} · {{ settings.classification }}</p>
+  </div>
+ {% if request.query_params.get('view') == '3d' %}
+
+  {% set rating_field = 'rating_3d' %}
+  {% set score_field = 'risk_score_3d' %}
+
+{% else %}
+
+  {% set rating_field = 'rating' %}
+  {% set score_field = 'risk_score' %}
+
+{% endif %}
+
+  {% set total  = risks|length %}
+  {% set crit   = risks|selectattr(rating_field,'eq','Critical')|list|length %}
+  {% set high   = risks|selectattr(rating_field,'eq','High')|list|length %}
+  {% set med    = risks|selectattr(rating_field,'eq','Medium')|list|length %}
+  {% set low_   = risks|selectattr(rating_field,'eq','Low')|list|length %}
+  {% set open_  = risks|rejectattr('status','eq','Completed')|list|length %}
+  {% set overdue= risks|selectattr('status','eq','Overdue')|list|length %}
+
+  <!-- Alerts -->
+  {% if overdue > 0 %}
+  <div class="alert alert-red mb-8">⚠ {{ overdue }} risk{{ 's' if overdue>1 }} overdue</div>
+  {% endif %}
+  {% set due_assess = [] %}
+  {% for r in risks %}{% if r.next_assessment_date and r.next_assessment_date <= now %}{% set _ = due_assess.append(r) %}{% endif %}{% endfor %}
+  {% if due_assess|length > 0 %}
+  <div class="alert alert-orange mb-12">📅 {{ due_assess|length }} assessment{{ 's' if due_assess|length>1 }} overdue for review</div>
+  {% endif %}
+  {% set due_count = (pending_reviews or [])|selectattr('status','eq','Due')|list|length %}
+  {% set sub_count = (pending_reviews or [])|selectattr('status','eq','Submitted')|list|length %}
+  {% if due_count > 0 or sub_count > 0 %}
+  <div class="alert alert-blue mb-12" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <span>🔁 <strong>{{ due_count }}</strong> review{{ 's' if due_count != 1 }} awaiting owner submission · <strong>{{ sub_count }}</strong> awaiting approval</span>
+    <a href="/reviews" class="btn btn-ghost btn-xs" style="font-size:10px;">Open Reviews →</a>
+  </div>
+  {% endif %}
+
+  <!-- KPI Row -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;">
+    <div class="kpi" style="border-color:var(--green);">
+      <div class="val" style="color:var(--navy);">{{ total }}</div>
+      <div class="lbl">Total Risks</div><div class="sub">In register</div>
+    </div>
+    <div class="kpi" style="border-color:var(--red);">
+      <div class="val" style="color:var(--red);">{{ crit }}</div>
+      <div class="lbl">Critical</div><div class="sub">Board escalation</div>
+    </div>
+    <div class="kpi" style="border-color:var(--amber);">
+      <div class="val" style="color:var(--amber);">{{ high }}</div>
+      <div class="lbl">High</div><div class="sub">Senior attention</div>
+    </div>
+    <div class="kpi" style="border-color:var(--orange);">
+      <div class="val" style="color:var(--orange);">{{ med }}</div>
+      <div class="lbl">Medium</div><div class="sub">Monitor closely</div>
+    </div>
+    <div class="kpi" style="border-color:var(--green);">
+      <div class="val" style="color:var(--green);">{{ low_ }}</div>
+      <div class="lbl">Low</div><div class="sub">Routine monitoring</div>
+    </div>
+    <div class="kpi" style="border-color:var(--navy);">
+      <div class="val" style="color:var(--navy);">{{ open_ }}</div>
+      <div class="lbl">Open Actions</div><div class="sub">Pending closure</div>
+    </div>
+  </div>
+
+  <!-- Portfolio Movement (period-over-period) -->
+  {% if movement %}
+  <div class="card mb-16">
+    <div class="card-head card-accent-navy">
+      <h3>Portfolio Movement</h3>
+      <span style="font-size:10px;color:var(--muted);">Period-over-period rating shifts (based on approved reviews)</span>
+    </div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px;">
+        <div style="background:#FDEAEA;border-left:4px solid var(--red);border-radius:8px;padding:11px 13px;">
+          <div style="font-size:24px;font-weight:900;color:var(--red);line-height:1;">▲ {{ movement.up }}</div>
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-top:4px;">Increased</div>
+          <div style="font-size:9px;color:var(--muted);">Worsened vs prior period</div>
+        </div>
+        <div style="background:#E5F4F2;border-left:4px solid var(--green);border-radius:8px;padding:11px 13px;">
+          <div style="font-size:24px;font-weight:900;color:var(--green);line-height:1;">▼ {{ movement.down }}</div>
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-top:4px;">Reduced</div>
+          <div style="font-size:9px;color:var(--muted);">Improved vs prior period</div>
+        </div>
+        <div style="background:#F4F7FB;border-left:4px solid var(--slate);border-radius:8px;padding:11px 13px;">
+          <div style="font-size:24px;font-weight:900;color:var(--slate);line-height:1;">→ {{ movement.same }}</div>
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-top:4px;">Unchanged</div>
+          <div style="font-size:9px;color:var(--muted);">Same as prior period</div>
+        </div>
+        <div style="background:#FFF1E6;border-left:4px solid var(--orange);border-radius:8px;padding:11px 13px;">
+          <div style="font-size:24px;font-weight:900;color:var(--orange);line-height:1;">★ {{ movement.new }}</div>
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-top:4px;">New / No History</div>
+          <div style="font-size:9px;color:var(--muted);">Awaiting first approved review</div>
+        </div>
+      </div>
+      {% set moved = movement.detail|selectattr('movement','in',['up','down'])|list %}
+      {% if moved %}
+      <details>
+        <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;">📋 Risks that moved ({{ moved|length }})</summary>
+        <table style="width:100%;font-size:11px;margin-top:8px;">
+          <thead><tr><th>No</th><th>Statement</th><th>Previous</th><th>Current</th><th>Δ</th><th>Direction</th></tr></thead>
+          <tbody>
+          {% for d in moved %}
+          <tr>
+            <td style="font-weight:800;">{{ d.no }}</td>
+            <td><div class="truncate" style="max-width:240px;">{{ d.statement }}</div></td>
+            <td style="font-size:10px;color:var(--muted);">{{ d.prev_period or '—' }} · <strong>{{ d.prev_score or '—' }}</strong></td>
+            <td style="font-size:10px;color:var(--muted);">{{ d.curr_period }} · <strong style="color:var(--navy);">{{ d.curr_score }}</strong></td>
+            <td style="text-align:center;font-weight:900;color:{% if d.movement=='up' %}var(--red){% else %}var(--green){% endif %};">{% if d.delta > 0 %}+{% endif %}{{ d.delta }}</td>
+            <td>{% if d.movement=='up' %}<span class="badge badge-critical" style="font-size:9px;">▲ Up</span>{% else %}<span class="badge badge-low" style="font-size:9px;">▼ Down</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Charts Row 1 -->
+  <div class="grid-auto mb-16">
+    <div class="card">
+      <div class="card-head card-accent-green"><h3>Rating Distribution</h3></div>
+      <div class="card-body" style="height:220px;display:flex;align-items:center;justify-content:center;">
+        <canvas id="pie-chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head card-accent-orange"><h3>Risk Score Ranking</h3></div>
+      <div class="card-body" style="height:220px;">
+        <canvas id="bar-chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head card-accent-navy"><h3>By Category</h3></div>
+      <div class="card-body" style="height:220px;">
+        <canvas id="cat-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row 2 -->
+  <div class="grid-auto mb-16">
+    <!-- Heatmap -->
+    <div class="card">
+      <div class="card-head card-accent-red" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h3>Risk Heatmap</h3>
+          <span id="heatmap-mode-label" style="font-size:10px;color:var(--muted);">Impact × Likelihood</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:10px;font-weight:800;color:var(--slate);text-transform:uppercase;letter-spacing:0.5px;">View:</span>
+          <div style="display:flex;gap:0;border-radius:8px;overflow:hidden;border:2px solid var(--navy);box-shadow:0 1px 3px rgba(13,35,64,0.15);">
+            <button type="button" id="heatmap-2d-btn" onclick="setHeatmapMode('2D')"
+              style="padding:7px 14px;border:none;cursor:pointer;font-size:12px;font-weight:900;font-family:var(--font);background:var(--navy);color:#fff;letter-spacing:0.3px;">2D</button>
+            <button type="button" id="heatmap-3d-btn" onclick="setHeatmapMode('3D')"
+              style="padding:7px 14px;border:none;cursor:pointer;font-size:12px;font-weight:900;font-family:var(--font);background:#fff;color:var(--navy);letter-spacing:0.3px;border-left:2px solid var(--navy);">3D</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        {# ── Build heat dicts for both modes ── #}
+        {% set heat2d = {} %}
+        {% set heat3d = {} %}
+        {% for r in risks %}
+          {% set fi = r.final_impact or 0 %}
+          {% set l  = r.likelihood  or 0 %}
+          {% set v  = r.velocity or 0 %}
+          {% set k  = fi|string + '-' + l|string %}
+          {% if k not in heat2d %}{% set _ = heat2d.update({k: []}) %}{% endif %}
+          {% set _ = heat2d[k].append(r.no) %}
+          {% if v %}
+            {% set k3 = fi|string + '-' + v|string + '-' + l|string %}
+            {% if k3 not in heat3d %}{% set _ = heat3d.update({k3: []}) %}{% endif %}
+            {% set _ = heat3d[k3].append(r.no) %}
+          {% endif %}
+        {% endfor %}
+
+        <!-- 2D Heatmap -->
+        <div id="heatmap-2d-block">
+          <div style="overflow-x:auto;">
+            <div style="min-width:280px;">
+              <div style="display:flex;margin-bottom:4px;">
+                <div style="width:60px;flex-shrink:0;"></div>
+                <div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:3px;">
+                  {% for i in [1,2,3,4,5] %}
+                  <div style="text-align:center;font-size:11px;font-weight:900;color:var(--navy);">{{ i }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% set colors = {1:'#E5F4F2',2:'#FFF9E6',3:'#FFF1E6',4:'#FDEAEA'} %}
+              {% set bcolors = {1:'#008676',2:'#FDB913',3:'#E87820',4:'#D03030'} %}
+              {% for l in [5,4,3,2,1] %}
+              <div style="display:flex;align-items:center;margin-bottom:3px;">
+                <div style="width:60px;flex-shrink:0;text-align:right;padding-right:7px;font-size:11px;font-weight:900;color:var(--navy);">{{ l }}</div>
+                <div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:3px;">
+                  {% for i in [1,2,3,4,5] %}
+                    {% set s = i * l %}
+                    {% set rcls = 1 if s <= 4 else (2 if s <= 9 else (3 if s <= 14 else 4)) %}
+                    {% set k = i|string + '-' + l|string %}
+                    {% set items = heat2d.get(k, []) %}
+                    <div style="aspect-ratio:1;border-radius:6px;background:{{ colors[rcls] }};border:1.5px solid {{ bcolors[rcls] }}44;display:flex;align-items:center;justify-content:center;position:relative;min-height:36px;">
+                      <span style="font-size:7px;color:{{ bcolors[rcls] }};font-weight:700;position:absolute;bottom:1px;right:2px;">{{ s }}</span>
+                      {% if items %}
+                      <div style="width:{% if items|length>1 %}22px{% else %}18px{% endif %};height:{% if items|length>1 %}22px{% else %}18px{% endif %};border-radius:50%;background:{{ bcolors[rcls] }};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:9px;">{% if items|length>1 %}{{ items|length }}{% else %}{{ items[0] }}{% endif %}</div>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <!-- 3D Heatmap (Impact-Velocity rows × Likelihood cols) -->
+        <div id="heatmap-3d-block" style="display:none;">
+          {% set pairs = [] %}
+          {% for i in [1,2,3,4,5] %}{% for v in [1,2,3] %}{% set _ = pairs.append((i, v, i*v)) %}{% endfor %}{% endfor %}
+          {% set sorted_pairs = pairs|sort(attribute=2) %}
+          <div style="overflow-x:auto;">
+            <div style="min-width:380px;">
+              <div style="display:flex;margin-bottom:4px;">
+                <div style="width:62px;flex-shrink:0;font-size:9px;color:var(--muted);text-align:right;padding-right:6px;">L↓ I-V→</div>
+                <div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:3px;">
+                  {% for L in [5,4,3,2,1] %}
+                  <div style="text-align:center;font-size:11px;font-weight:900;color:var(--navy);">L{{ L }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% for i, v, iv in sorted_pairs %}
+              <div style="display:flex;align-items:center;margin-bottom:2px;">
+                <div style="width:62px;flex-shrink:0;text-align:right;padding-right:6px;font-size:10px;font-weight:800;color:var(--navy);">I{{ i }}-V{{ v }}</div>
+                <div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:3px;">
+                  {% for L in [5,4,3,2,1] %}
+                    {% set s = iv * L %}
+                    {% if s >= 51 %}{% set rc='#8B0000' %}{% set bg='#FDEAEA' %}
+                    {% elif s >= 31 %}{% set rc='#D03030' %}{% set bg='#FDEAEA' %}
+                    {% elif s >= 16 %}{% set rc='#FDB913' %}{% set bg='#FFF9E6' %}
+                    {% else %}{% set rc='#008676' %}{% set bg='#E5F4F2' %}{% endif %}
+                    {% set k3 = i|string + '-' + v|string + '-' + L|string %}
+                    {% set items = heat3d.get(k3, []) %}
+                    <div style="border-radius:5px;background:{{ bg }};border:1.5px solid {{ rc }}44;display:flex;align-items:center;justify-content:center;position:relative;min-height:30px;padding:4px;">
+                      <span style="font-size:7px;color:{{ rc }};font-weight:700;position:absolute;bottom:1px;right:2px;">{{ s }}</span>
+                      {% if items %}
+                      <div style="width:{% if items|length>1 %}20px{% else %}16px{% endif %};height:{% if items|length>1 %}20px{% else %}16px{% endif %};border-radius:50%;background:{{ rc }};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:8px;">{% if items|length>1 %}{{ items|length }}{% else %}{{ items[0] }}{% endif %}</div>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% set risks_with_v = risks|selectattr('velocity')|list|length %}
+          {% if risks_with_v < risks|length %}
+          <div style="margin-top:8px;font-size:10px;color:var(--orange);text-align:center;">
+            ⚠ {{ risks|length - risks_with_v }} risk{{ 's' if risks|length - risks_with_v != 1 }} not shown — velocity not yet set
+          </div>
+          {% endif %}
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+          {% for label, col in [('Low','#008676'),('Medium','#FDB913'),('High','#E87820'),('Critical','#D03030')] %}
+          <div style="display:flex;align-items:center;gap:4px;font-size:9px;">
+            <div style="width:8px;height:8px;border-radius:2px;background:{{ col }};"></div>
+            <span style="color:var(--slate);">{{ label }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Rating Trend -->
+    <div class="card">
+      <div class="card-head card-accent-green"><h3>Rating Trend</h3><span style="font-size:10px;color:var(--muted);">Historical movement</span></div>
+      <div class="card-body" style="height:240px;">
+        <canvas id="trend-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Business Exposure -->
+    <div class="card">
+      <div class="card-head card-accent-orange"><h3>Business Unit Exposure</h3></div>
+      <div class="card-body">
+        {% for b in businesses if b.active %}
+          {% set brks = [] %}
+
+{% set brks = [] %}
+
+{% for r in risks %}
+
+  {% if r.businesses and b.name in r.businesses %}
+
+    {% set _ = brks.append(r) %}
+
+  {% endif %}
+
+{% endfor %}
+
+{% set bc = brks|length %}
+
+{% set bcrit = brks|selectattr(rating_field,'eq','Critical')|list|length %}
+{% set bhigh = brks|selectattr(rating_field,'eq','High')|list|length %}
+{% set bmed  = brks|selectattr(rating_field,'eq','Medium')|list|length %}
+{% set blow  = brks|selectattr(rating_field,'eq','Low')|list|length %}
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+              <span style="font-size:11px;font-weight:700;color:var(--navy);">{{ b.name.replace('FinCo ','') }}</span>
+              <span style="font-size:10px;color:var(--muted);">{{ bc }}</span>
+            </div>
+            <div style="height:8px;border-radius:999px;background:var(--bg);overflow:hidden;display:flex;">
+              {% if bc > 0 %}
+                {% if bcrit > 0 %}<div style="flex:{{ bcrit }};background:var(--red);min-width:2px;"></div>{% endif %}
+                {% if bhigh > 0 %}<div style="flex:{{ bhigh }};background:var(--amber);min-width:2px;"></div>{% endif %}
+                {% if bmed  > 0 %}<div style="flex:{{ bmed  }};background:var(--orange);min-width:2px;"></div>{% endif %}
+                {% if blow  > 0 %}<div style="flex:{{ blow  }};background:var(--green);min-width:2px;"></div>{% endif %}
+              {% endif %}
+            </div>
+            {% if bcrit > 0 %}<span class="badge badge-critical" style="font-size:8px;margin-top:3px;">{{ bcrit }} Critical</span>{% endif %}
+          </div>
+        {% endfor %}
+        {% set group_risks = risks|selectattr('applicability','eq','group')|list %}
+{% set gc = group_risks|length %}
+
+{% if gc > 0 %}
+
+  {% set gcrit = group_risks|selectattr(rating_field,'eq','Critical')|list|length %}
+  {% set ghigh = group_risks|selectattr(rating_field,'eq','High')|list|length %}
+  {% set gmed  = group_risks|selectattr(rating_field,'eq','Medium')|list|length %}
+  {% set glow  = group_risks|selectattr(rating_field,'eq','Low')|list|length %}
+
+  <div style="margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+      <span style="font-size:11px;font-weight:700;color:var(--navy);">
+        Group
+      </span>
+
+      <span style="font-size:10px;color:var(--muted);">
+        {{ gc }}
+      </span>
+    </div>
+
+    <div style="height:8px;border-radius:999px;background:var(--bg);overflow:hidden;display:flex;">
+
+      {% if gcrit > 0 %}
+        <div style="flex:{{ gcrit }};background:var(--red);min-width:2px;"></div>
+      {% endif %}
+
+      {% if ghigh > 0 %}
+        <div style="flex:{{ ghigh }};background:var(--amber);min-width:2px;"></div>
+      {% endif %}
+
+      {% if gmed > 0 %}
+        <div style="flex:{{ gmed }};background:var(--orange);min-width:2px;"></div>
+      {% endif %}
+
+      {% if glow > 0 %}
+        <div style="flex:{{ glow }};background:var(--green);min-width:2px;"></div>
+      {% endif %}
+
+    </div>
+  </div>
+
+{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Owners + Calendar + Mitigation Status -->
+  <div class="grid-auto mb-16">
+    <div class="card">
+      <div class="card-head card-accent-green"><h3>Risk Owner Summary</h3></div>
+      <div class="card-body">
+        {% set owners = [] %}
+        {% for r in risks %}{% if r.risk_owner and r.risk_owner not in owners %}{% set _ = owners.append(r.risk_owner) %}{% endif %}{% endfor %}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">
+          {% for owner in owners %}
+          {% set owned = risks|selectattr('risk_owner','eq',owner)|list %}
+          {% set max_score = owned|map(attribute=score_field)|max|default(0) %}
+          {% set top_rating = 'N/A' %}
+          {% for r in owned %}{% if r[score_field] == max_score %}{% set top_rating = r[rating_field] %}{% endif %}{% endfor %}
+          <div style="background:var(--bg);border-radius:8px;padding:10px 11px;border:1px solid var(--border);">
+            <div style="font-size:11px;font-weight:700;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;">{{ owner }}</div>
+            <div style="font-size:9px;color:var(--muted);margin-bottom:6px;">{{ owned|length }} risk{{ 's' if owned|length!=1 }}</div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <span class="bubble bubble-sm {% if max_score >= 15 %}bub-critical{% elif max_score >= 10 %}bub-high{% elif max_score >= 5 %}bub-medium{% elif max_score >= 1 %}bub-low{% else %}bub-na{% endif %}">{{ max_score }}</span>
+              <span class="badge badge-{{ top_rating|lower if top_rating else 'na' }}" style="font-size:9px;">{{ top_rating }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head card-accent-orange"><h3>Assessment Calendar</h3><span style="font-size:10px;color:var(--muted);">Upcoming reviews</span></div>
+      <div class="card-body">
+        {% set sorted_risks = risks|sort(attribute='next_assessment_date') %}
+        {% for r in sorted_risks if r.next_assessment_date %}
+        {% if loop.index <= 8 %}
+        {% set urgent = r.next_assessment_date <= now %}
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bg);">
+          <div style="width:5px;height:5px;border-radius:50%;background:{% if urgent %}var(--red){% else %}var(--green){% endif %};flex-shrink:0;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;font-weight:700;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ r.no }}: {{ r.statement[:28] }}…</div>
+            <div style="font-size:9px;color:var(--muted);">{{ r.assessment_frequency }}</div>
+          </div>
+          <div style="font-size:9px;font-weight:700;color:{% if urgent %}var(--red){% else %}var(--slate){% endif %};white-space:nowrap;">{{ r.next_assessment_date }}</div>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head card-accent-navy"><h3>Mitigation Status</h3></div>
+      <div class="card-body">
+        {% set status_colors = {'Completed':'var(--green)','In Progress':'var(--orange)','Not Started':'var(--muted)','Overdue':'var(--red)','On Hold':'#9B59B6','Pending Approval':'var(--amber)'} %}
+        {% for status in ['Not Started','In Progress','Pending Approval','Completed','Overdue','On Hold'] %}
+          {% set cnt = risks|selectattr('status','eq',status)|list|length %}
+          {% if cnt > 0 %}
+          {% set pct = (cnt / total * 100)|int %}
+          <div style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+              <span style="font-size:11px;font-weight:700;color:{{ status_colors.get(status,'var(--muted)') }};">{{ status }}</span>
+              <span style="font-size:10px;font-weight:700;color:var(--navy);">{{ cnt }} <span style="color:var(--muted);font-weight:400;">({{ pct }}%)</span></span>
+            </div>
+            <div style="height:5px;border-radius:999px;background:var(--bg);">
+              <div style="width:{{ pct }}%;height:100%;background:{{ status_colors.get(status,'var(--muted)') }};border-radius:999px;"></div>
+            </div>
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Critical Risks Table -->
+  {% set crit_risks = risks|selectattr('rating','eq','Critical')|list %}
+  {% if crit_risks %}
+  <div class="card mb-16">
+    <div class="card-head" style="border-top:3px solid var(--red);">
+      <h3 style="color:var(--red);">⚠ Critical Risks — Board Attention Required</h3>
+    </div>
+    <div class="tbl-wrap p-0">
+      <table>
+        <thead><tr>
+          <th>No.</th><th>Risk Statement</th><th>Score</th><th>Owner</th><th>Strategy</th><th>Status</th><th>Target</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for r in crit_risks %}
+        <tr>
+          <td style="font-weight:900;color:var(--red);">{{ r.no }}</td>
+          <td style="max-width:300px;"><div class="truncate" style="font-size:12px;font-weight:600;">{{ r.statement }}</div></td>
+          <td style="text-align:center;"><span class="bubble bubble-sm bub-critical">{{ r[score_field] }}</span></td>
+          <td style="font-size:11px;">{{ r.risk_owner or '—' }}</td>
+          <td style="font-size:11px;">{{ r.strategy or '—' }}</td>
+          <td><span class="status-dot sd-{{ (r.status or 'notstarted')|lower|replace(' ','') }}">{{ r.status }}</span></td>
+          <td style="font-size:10px;color:var(--slate);">{{ r.target_date or '—' }}</td>
+          <td><a href="/risks/{{ r.id }}/view" class="btn btn-ghost btn-xs">View</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+const CHART_COLORS = ['#008676','#FDB913','#E87820','#D03030','#163356','#9B59B6'];
+const opts = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ font:{size:10}, boxWidth:10 }}}};
+
+
+
+// Pie chart
+new Chart(document.getElementById('pie-chart'), {
+  type:'doughnut',
+  data:{ labels:['Low','Medium','High','Critical'],
+    datasets:[{ data:[{{ low_ }},{{ med }},{{ high }},{{ crit }}],
+      backgroundColor:['#008676','#FDB913','#E87820','#D03030'],
+      borderWidth:2, borderColor:'#fff' }]},
+  options:{...opts, cutout:'60%'},
+});
+
+// Bar chart - risk scores
+{% set sorted_risks = risks|sort(attribute=score_field,reverse=true) %}
+new Chart(document.getElementById('bar-chart'), {
+  type:'bar',
+  data:{ labels:[{% for r in sorted_risks[:8] %}'{{ r.no }}',{% endfor %}],
+    datasets:[{ data:[{% for r in sorted_risks[:8] %}{{ r[score_field] or 0 }},{% endfor %}],
+      backgroundColor:[{% for r in sorted_risks[:8] %}
+        '{% if r[rating_field]=="Critical" %}#D03030{% elif r[rating_field]=="High" %}#E87820{% elif r[rating_field]=="Medium" %}#FDB913{% else %}#008676{% endif %}',
+      {% endfor %}], borderRadius:5 }]},
+  options:{...opts, scales:{ y:{ max:25, ticks:{font:{size:9}} }, x:{ ticks:{font:{size:9}} }},
+    plugins:{legend:{display:false}}},
+});
+
+// Category bar
+{% set cat_data = {} %}
+{% for r in risks %}{% if r.category %}{% set k = r.category.split('/')[0][:12] %}{% if k not in cat_data %}{% set _ = cat_data.update({k:0}) %}{% endif %}{% set _ = cat_data.update({k: cat_data[k]+1}) %}{% endif %}{% endfor %}
+new Chart(document.getElementById('cat-chart'), {
+  type:'bar',
+  data:{ labels:[{% for k in cat_data %}'{{ k }}',{% endfor %}],
+    datasets:[{ data:[{% for k,v in cat_data.items() %}{{ v }},{% endfor %}],
+      backgroundColor:CHART_COLORS, borderRadius:4 }]},
+  options:{...opts, indexAxis:'y', scales:{ x:{ ticks:{font:{size:9}} }, y:{ ticks:{font:{size:9}} }},
+    plugins:{legend:{display:false}}},
+});
+
+// Trend chart
+{% set all_dates = [] %}
+{% for r in risks %}{% for h in r.history %}{% if h.date not in all_dates %}{% set _ = all_dates.append(h.date) %}{% endif %}{% endfor %}{% endfor %}
+{% set all_dates = all_dates|sort %}
+{% set rating_names = ['Low','Medium','High','Critical'] %}
+{% set rating_colors = ['#008676','#FDB913','#E87820','#D03030'] %}
+new Chart(document.getElementById('trend-chart'), {
+  type:'line',
+  data:{ labels:[{% for d in all_dates %}'{{ d }}',{% endfor %}],
+    datasets:[
+      {% for rn in rating_names %}
+      { label:'{{ rn }}', data:[{% for d in all_dates %}
+        {{ risks|map(attribute='history')|list|sum(start=[])|selectattr('date','eq',d)|selectattr('rating','eq',rn)|list|length }},
+      {% endfor %}], borderColor:'{{ rating_colors[loop.index0] }}', backgroundColor:'{{ rating_colors[loop.index0] }}22',
+        tension:.3, fill:false, pointRadius:3, borderWidth:2 },
+      {% endfor %}
+    ]},
+  options:{...opts, scales:{ y:{ ticks:{font:{size:9}}, beginAtZero:true }, x:{ ticks:{font:{size:9}} }}},
+});
+
+// ── Heatmap 2D/3D Toggle ──────────────────────────────────────────────────────
+function setHeatmapMode(mode){
+  const block2d = document.getElementById('heatmap-2d-block');
+  const block3d = document.getElementById('heatmap-3d-block');
+  const btn2d = document.getElementById('heatmap-2d-btn');
+  const btn3d = document.getElementById('heatmap-3d-btn');
+  const label = document.getElementById('heatmap-mode-label');
+  if(mode==='3D'){
+    block2d.style.display='none';
+    block3d.style.display='block';
+    btn2d.style.background='#fff'; btn2d.style.color='var(--navy)';
+    btn3d.style.background='var(--navy)'; btn3d.style.color='#fff';
+    if(label) label.textContent='Impact × Velocity × Likelihood';
+  } else {
+    block2d.style.display='block';
+    block3d.style.display='none';
+    btn2d.style.background='var(--navy)'; btn2d.style.color='#fff';
+    btn3d.style.background='#fff'; btn3d.style.color='var(--navy)';
+    if(label) label.textContent='Impact × Likelihood';
+  }
+}
+</script>
+{% endblock %}

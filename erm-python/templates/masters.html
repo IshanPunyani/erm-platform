@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Masters{% endblock %}
+{% block content %}
+<div class="page">
+  <h1 class="page-title">Masters &amp; Configuration</h1>
+  <p class="page-sub">Manage businesses, contacts, and approval matrix</p>
+  {% if msg %}<div class="alert alert-green mb-12">✓ {{ {'biz_added':'Business added','biz_updated':'Business updated','biz_deleted':'Business removed','contact_saved':'Contact saved','contact_deleted':'Contact removed','matrix_saved':'Approval matrix saved'}.get(msg, msg) }}</div>{% endif %}
+
+  <div class="grid-2" style="align-items:start;">
+
+    <!-- LEFT: Businesses -->
+    <div>
+      <div class="card mb-16">
+        <div class="card-head card-accent-green">
+          <h3>Business Units</h3>
+          <span style="font-size:10px;color:var(--muted);">{{ businesses|length }} registered</span>
+        </div>
+        <div class="card-body">
+          <!-- Add new -->
+          <form method="post" action="/masters/business/add" style="display:flex;gap:8px;margin-bottom:14px;">
+            <input type="text" name="name" placeholder="New business unit name…" required style="flex:1;">
+            <button type="submit" class="btn btn-green btn-sm">Add</button>
+          </form>
+          <!-- List -->
+          {% for b in businesses %}
+          <div style="background:{% if b.active %}var(--bg){% else %}#F8F9FA{% endif %};border-radius:8px;border:1px solid var(--border);padding:10px 12px;margin-bottom:8px;opacity:{% if b.active %}1{% else %}0.6{% endif %};">
+            <form method="post" action="/masters/business/{{ b.id }}/edit" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <input type="text" name="name" value="{{ b.name }}" style="flex:1;min-width:100px;padding:5px 8px;font-size:12px;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;">
+                <input type="checkbox" name="active" value="1" {% if b.active %}checked{% endif %}> Active
+              </label>
+              <button type="submit" class="btn btn-ghost btn-xs">Save</button>
+              <button type="button"
+onclick="deleteBusiness({{ b.id }})"
+class="btn btn-red-ghost btn-xs">
+✕
+</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Approval Matrix -->
+      <div class="card mb-16">
+        <div class="card-head card-accent-orange">
+          <h3>Approval Matrix</h3>
+          <span style="font-size:10px;color:var(--muted);">Who approves closure per rating</span>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-blue mb-12">Define required approvers for each risk rating level. Multiple approvers can be listed in order.</div>
+          <form method="post" action="/masters/approval-matrix" id="matrix-form">
+            <div style="overflow-x:auto;">
+              <table style="width:100%;font-size:12px;min-width:400px;" id="matrix-table">
+                <thead><tr>
+                  <th style="width:90px;">Rating</th>
+                  <th>Approver Role</th>
+                  <th>Name (optional)</th>
+                  <th style="width:50px;text-align:center;">Order</th>
+                  <th style="width:36px;"></th>
+                </tr></thead>
+                <tbody id="matrix-rows">
+                {% for m in approval_matrix %}
+                <tr>
+                  <td>
+                    <select name="rating" style="padding:5px;font-size:11px;">
+                      {% for r in ['Critical','High','Medium','Low'] %}
+                      <option value="{{ r }}" {% if m.rating==r %}selected{% endif %}>{{ r }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td><input type="text" name="approver_role" value="{{ m.approver_role }}" placeholder="Role…" style="padding:5px;font-size:11px;"></td>
+                  <td><input type="text" name="approver_name" value="{{ m.approver_name or '' }}" placeholder="Name…" style="padding:5px;font-size:11px;"></td>
+                  <td><input type="number" name="order_no" value="{{ m.order_no or 1 }}" min="1" max="10" style="padding:5px;font-size:11px;text-align:center;width:44px;"></td>
+                  <td><button type="button" onclick="this.closest('tr').remove()" class="btn btn-red-ghost btn-xs">✕</button></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;justify-content:space-between;">
+              <button type="button" onclick="addMatrixRow()" class="btn btn-ghost btn-sm">+ Add Row</button>
+              <button type="submit" class="btn btn-primary btn-sm">Save Matrix</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Email Contacts -->
+    <div>
+      <div class="card mb-16">
+        <div class="card-head card-accent-navy">
+          <h3>Email Alert Contacts</h3>
+          <span style="font-size:10px;color:var(--muted);">{{ contacts|length }} configured</span>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-blue mb-12">Configure SMTP in Settings to enable live email delivery. Currently logs to activity feed.</div>
+
+          <!-- Add/Edit contact form -->
+          <details open>
+            <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px;">+ Add New Contact</summary>
+            <form method="post" action="/masters/contact/save" style="background:var(--bg);border-radius:8px;padding:12px;margin-top:8px;border:1px solid var(--border);">
+              <input type="hidden" name="id" value="">
+              <div class="grid-2">
+                <div class="fld"><label>Full Name <span class="req">*</span></label><input type="text" name="name" required placeholder="Jane Smith"></div>
+                <div class="fld"><label>Email <span class="req">*</span></label><input type="email" name="email" required placeholder="jane@company.com"></div>
+                <div class="fld"><label>Role</label>
+                  <select name="role">
+                    {% for r in alert_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="fld"><label>Active</label>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px;">
+                    <input type="checkbox" name="active" value="1" checked> Active
+                  </label>
+                </div>
+              </div>
+              <div class="fld">
+                <label>Alert Events</label>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+                  {% for evt in alert_events %}
+                  <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:600;background:var(--white);border:1px solid var(--border);color:var(--slate);">
+                    <input type="checkbox" name="alerts" value="{{ evt }}"> {{ evt }}
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+              <button type="submit" class="btn btn-green btn-sm">Save Contact</button>
+            </form>
+          </details>
+
+          <!-- Existing contacts -->
+          <div style="margin-top:16px;">
+            {% for c in contacts %}
+            <div style="background:{% if c.active %}var(--white){% else %}#F8F9FA{% endif %};border-radius:10px;border:1.5px solid {% if c.active %}var(--border){% else %}#E2E8F0{% endif %};margin-bottom:10px;overflow:hidden;opacity:{% if c.active %}1{% else %}0.7{% endif %};">
+              <div style="padding:10px 13px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div style="display:flex;gap:9px;align-items:center;">
+                  <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">{{ c.name[:2].upper() }}</div>
+                  <div>
+                    <div style="font-size:12px;font-weight:700;color:var(--navy);">{{ c.name }}</div>
+                    <div style="font-size:10px;color:var(--slate);">{{ c.email }} · <span style="color:var(--orange);font-weight:700;">{{ c.role }}</span> · {% if c.active %}<span style="color:var(--green);">Active</span>{% else %}<span style="color:var(--muted);">Inactive</span>{% endif %}</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button onclick="editContact({{ c|tojson }})" class="btn btn-ghost btn-xs">Edit</button>
+                  <form method="post" action="/masters/contact/{{ c.id }}/delete" onsubmit="return confirmDelete(this);" style="display:inline;">
+                    <button type="submit" class="btn btn-red-ghost btn-xs">Remove</button>
+                  </form>
+                </div>
+              </div>
+              {% if c.alerts %}
+              <div style="padding:8px 13px;display:flex;flex-wrap:wrap;gap:4px;">
+                {% for a in c.alerts %}
+                <span style="font-size:9px;font-weight:700;background:var(--navy)18;color:var(--navy);border:1px solid var(--border);border-radius:999px;padding:2px 7px;">{{ a }}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit contact modal -->
+<div id="edit-modal" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(10,25,50,.65);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:var(--white);border-radius:14px;width:100%;max-width:520px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.22);">
+    <div style="padding:14px 18px;background:var(--navy);border-bottom:3px solid var(--orange);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:14px;font-weight:700;color:var(--white);">Edit Contact</span>
+      <button onclick="closeEditModal()" style="background:none;border:none;color:rgba(255,255,255,.6);cursor:pointer;font-size:18px;">×</button>
+    </div>
+    <div style="padding:18px;">
+      <form method="post" action="/masters/contact/save" id="edit-contact-form">
+        <input type="hidden" name="id" id="edit-id">
+        <div class="grid-2">
+          <div class="fld"><label>Name</label><input type="text" name="name" id="edit-name" required></div>
+          <div class="fld"><label>Email</label><input type="email" name="email" id="edit-email" required></div>
+          <div class="fld"><label>Role</label>
+            <select name="role" id="edit-role">{% for r in alert_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
+          </div>
+          <div class="fld"><label>Active</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:8px;">
+              <input type="checkbox" name="active" id="edit-active" value="1"> Active
+            </label>
+          </div>
+        </div>
+        <div class="fld">
+          <label>Alert Events</label>
+          <div id="edit-alerts" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+            {% for evt in alert_events %}
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:600;background:var(--white);border:1px solid var(--border);color:var(--slate);" class="alert-label">
+              <input type="checkbox" name="alerts" value="{{ evt }}" class="alert-chk"> {{ evt }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+          <button type="button" onclick="closeEditModal()" class="btn btn-ghost btn-sm">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function editContact(c){
+  document.getElementById('edit-id').value = c.id;
+  document.getElementById('edit-name').value = c.name;
+  document.getElementById('edit-email').value = c.email;
+  document.getElementById('edit-role').value = c.role;
+  document.getElementById('edit-active').checked = !!c.active;
+  document.querySelectorAll('#edit-alerts .alert-chk').forEach(cb => {
+    cb.checked = c.alerts && c.alerts.includes(cb.value);
+  });
+  const m = document.getElementById('edit-modal');
+  m.style.display = 'flex';
+}
+function closeEditModal(){ document.getElementById('edit-modal').style.display='none'; }
+
+function addMatrixRow(){
+  const tbody = document.getElementById('matrix-rows');
+  const row = document.createElement('tr');
+  row.innerHTML = `<td><select name="rating" style="padding:5px;font-size:11px;">
+    <option>Critical</option><option>High</option><option>Medium</option><option>Low</option>
+  </select></td>
+  <td><input type="text" name="approver_role" placeholder="Role…" style="padding:5px;font-size:11px;"></td>
+  <td><input type="text" name="approver_name" placeholder="Name…" style="padding:5px;font-size:11px;"></td>
+  <td><input type="number" name="order_no" value="1" min="1" max="10" style="padding:5px;font-size:11px;text-align:center;width:44px;"></td>
+  <td><button type="button" onclick="this.closest('tr').remove()" class="btn btn-red-ghost btn-xs">✕</button></td>`;
+  tbody.appendChild(row);
+}
+</script>
+<script>
+function deleteBusiness(id) {
+    if(confirm("Delete this business?")) {
+
+        fetch(`/masters/business/${id}/delete`, {
+            method: 'POST'
+        }).then(() => {
+            window.location.reload();
+        });
+
+    }
+}
+</script>
+
+{% endblock %}
